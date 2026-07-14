@@ -18,6 +18,22 @@ function os_find_files(directory, extension)
 	return sorted_files
 end
 
+function parse_lua_module_c_function_name(line)
+	local LFN1 = "^%s*static%s+int%s+([%a_][%w_]*)%s*%((.*)%)"
+	local LFN2 = "^%s*int%s+([%a_][%w_]*)%s*%((.*)%)"
+	local LFP1 = "^%s*const%s+lua_State%s*%*%s*([%a_][%w_]*)%s*$"
+	local LFP2 = "^%s*lua_State%s*%*%s*([%a_][%w_]*)%s*$"
+	local name, parameters = line:match(LFN1)
+	if not name then
+		name, parameters = line:match(LFN2)
+	end
+	if name and parameters then
+		if parameters:match(LFP1) or parameters:match(LFP2) then
+			return name
+		end
+	end
+end
+
 function write_lua_modules_header(path)
 	local file = assert(io.open(path, "w"))
 	file:write("#ifndef LUA_MODULES_H\n")
@@ -38,27 +54,25 @@ function write_lua_modules(directory, path)
 	file:write('#include <lua.h>\n')
 	file:write('#include <lauxlib.h>\n\n')
 
-	local functions = {}
 	local modules = os_find_files(directory, ".c")
-	local _L_ = "^%s*[_%w%*%s]+%s+([_%a][_%w]*)%s*%"
-	_L_ = _L_ .. "(%s*lua_State%s*%*%s*[_%a][_%w]*%s*%)"
-	C_COMPILER_FLAGS = C_COMPILER_FLAGS .. " -I."
 
 	-- finding Lua functions in C modules
+	local functions = {}
 	for _, module_path in ipairs(modules) do
 		local module_functions = {}
 		table.insert(functions, module_functions)
 		local module_file = assert(io.open(module_path, "r"))
 		for line in module_file:lines() do
-			local function_name = line:match(_L_)
-			if function_name then
-				table.insert(module_functions, function_name)
+			local name = parse_lua_module_c_function_name(line)
+			if name then
+				table.insert(module_functions, name)
 			end
 		end
 		module_file:close()
 	end
 
 	-- including C modules from the project directory
+	C_COMPILER_FLAGS = C_COMPILER_FLAGS .. " -I."
 	for _, module_path in ipairs(modules) do
 		file:write(string.format('#include "%s"\n', module_path))
 	end
@@ -76,15 +90,15 @@ function write_lua_modules(directory, path)
 	for index, module in ipairs(modules) do
 		local m = module:gsub("/", "_")
 		file:write(string.format("static const luaL_Reg %s[] = {\n", m))
-		for _, function_name in ipairs(functions[index]) do
-			local fn = function_name:gsub("^l_", "")
-			fn = fn:gsub(string.format("^%s_", m:gsub("_C$", "")), "")
-			file:write(string.format('\t{ "%s", %s }, \n', fn, function_name))
+		for _, name in ipairs(functions[index]) do
+			local n = name:gsub("^l_", "")
+			n = n:gsub(string.format("^%s_", m:gsub("_C$", "")), "")
+			file:write(string.format('\t{ "%s", %s }, \n', n, name))
 		end
 		file:write('\t{ NULL, NULL }\n};\n\n')
 	end
 
-	-- generating registartion functions for C modules
+	-- generating registration functions for C modules
 	for _, module in ipairs(modules) do
 		local m = module:gsub("/", "_")
 		file:write(string.format("static int luaopen_%s(lua_State* L) {\n", m))
@@ -92,7 +106,7 @@ function write_lua_modules(directory, path)
 		file:write("\treturn 1;\n};\n\n")
 	end
 
-	-- generating C modules registartion table
+	-- generating C modules registration table
 	file:write("const LuaModule g_lua_modules[] = {\n")
 	for _, module in ipairs(modules) do
 		local m = string.format("luaopen_%s", module:gsub("/", "_"))
@@ -103,32 +117,28 @@ function write_lua_modules(directory, path)
 	file:close()
 end
 
-function lua_script_to_bytes_string(path)
+function string_to_formatted_bytes(data)
+	local bytes = {}
+	local data_size = data:len()
+	for index = 1, data_size do
+		if index % 12 == 1 then
+			table.insert(bytes, (index == 1) and "\t" or "\n\t")
+		end
+		table.insert(bytes, string.format("0x%02x", data:byte(index)))
+		table.insert(bytes, (index ~= data_size) and ", " or "\n")
+	end
+	return table.concat(bytes)
+end
+
+function lua_script_to_formatted_bytes(path)
 	local file = assert(io.open(path, "rb"))
 	local data = file:read("*a")
 	if EMBED_LUA_SCRIPTS_AS_BYTECODE then
 		local _load51 = loadstring or load
 		data = string.dump(assert(_load51(data)))
 	end
-	local data_size = data:len()
 	file:close()
-
-	local bytes = {}
-	for index = 1, data_size do
-		if index == 1 then
-			table.insert(bytes, "\t")
-		elseif index % 12 == 1 then
-			table.insert(bytes, "\n\t")
-		end
-		table.insert(bytes, string.format("0x%02x", data:byte(index)))
-		if index ~= data_size then
-			table.insert(bytes, ", ")
-		else
-			table.insert(bytes, "\n")
-		end
-	end
-
-	return table.concat(bytes)
+	return string_to_formatted_bytes(data)
 end
 
 function write_lua_scripts_header(path)
@@ -150,6 +160,7 @@ function write_lua_scripts(directory, path)
 	local file = assert(io.open(path, "w"))
 	file:write('#include "lua_scripts.h"\n\n')
 
+	-- finding module names for Lua scripts
 	local scripts = os_find_files(directory, ".lua")
 	local scripts_prefix = string.format("^%s/", directory)
 	for index, script_path in ipairs(scripts) do
@@ -163,11 +174,11 @@ function write_lua_scripts(directory, path)
 		local script_path, module = value[1], value[2]
 		local s = string.format("script_%s", module:gsub("/", "_"))
 		file:write(string.format("static const char %s[] = {\n", s))
-		file:write(lua_script_to_bytes_string(script_path))
+		file:write(lua_script_to_formatted_bytes(script_path))
 		file:write("};\n\n")
 	end
 
-	-- generating registartion table for Lua scripts
+	-- generating registration table for Lua scripts
 	file:write("const LuaScript g_lua_scripts[] = {\n")
 	for _, value in ipairs(scripts) do
 		local module, m = value[2], value[2]:gsub("/", ".")
@@ -180,20 +191,18 @@ function write_lua_scripts(directory, path)
 end
 
 function compile_c(directory, path)
+	local sources = os_find_files(directory, ".c")
+
 	local arguments = { C_COMPILER }
 	for argument in C_COMPILER_FLAGS:gmatch("%S+") do
 		table.insert(arguments, argument)
 	end
-
-	local sources = os_find_files(directory, ".c")
 	for _, source_path in ipairs(sources) do
 		table.insert(arguments, string.format('"%s"', source_path))
 	end
-
 	for argument in C_LINKER_FLAGS:gmatch("%S+") do
 		table.insert(arguments, argument)
 	end
-
 	table.insert(arguments, "-o")
 	table.insert(arguments, string.format('"%s"', path))
 
