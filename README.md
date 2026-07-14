@@ -5,5 +5,6 @@ Manage application state from **`main.lua`** and transform data in **C**.<br>
 
 ## Building the project
 ```Bash
-lua compile.lua
+lua compile.lua &&
+./application
 ```

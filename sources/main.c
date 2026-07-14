@@ -11,8 +11,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	luaL_openlibs(L);
+	luaM_register_modules(L);
 	luaM_register_scripts(L);
-	luaM_register_arguments(L, argc, argv);
+	luaM_register_arg(L, argc, argv);
 	lua_getglobal(L, "require");
 	lua_pushstring(L, "main");
 

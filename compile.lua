@@ -15,10 +15,24 @@ function os_normalize_path(path, is_native)
 	return path
 end
 
+function os_get_cwd()
+	local command = "pwd"
+	if OS_WINDOWS then
+		command = "cd"
+	end
+	local result = assert(io.popen(command))
+	local cwd = result:read("*l")
+	result:close()
+	return cwd
+end
+
 function os_find_files(directory, extension)
 	local find_command = 'find "%s" -type f -name "*%s"'
+
+	local cwd = ""
 	if OS_WINDOWS then
 		find_command = 'dir /b /s "%s\\*%s"'
+		cwd = string.format("^%s\\", os_get_cwd())
 	end
 
 	find_command = string.format(find_command,
@@ -27,6 +41,9 @@ function os_find_files(directory, extension)
 
 	local sorted_files = {}
 	for path in found_files:lines() do
+		if OS_WINDOWS then
+			path = path:gsub(cwd, "")
+		end
 		path = os_normalize_path(path, true)
 		table.insert(sorted_files, path)
 	end
@@ -34,6 +51,91 @@ function os_find_files(directory, extension)
 	found_files:close()
 	table.sort(sorted_files)
 	return sorted_files
+end
+
+function write_lua_modules_header(path)
+	local file = assert(io.open(path, "w"))
+	file:write("#ifndef LUA_MODULES_H\n")
+	file:write("#define LUA_MODULES_H\n\n")
+	file:write("#include <stddef.h>\n\n")
+	file:write("typedef struct LuaModule {\n")
+	file:write("\tconst char* name;\n")
+	file:write("\tvoid* open_function;\n")
+	file:write("} LuaModule;\n\n")
+	file:write("extern const LuaModule g_lua_modules[];\n\n")
+	file:write("#endif\n")
+	file:close()
+end
+
+function write_lua_modules(directory, path)
+	local file = assert(io.open(path, "w"))
+	file:write('#include "lua_modules.h"\n\n')
+	file:write('#include <lua.h>\n')
+	file:write('#include <lauxlib.h>\n\n')
+
+	local functions = {}
+	local modules = os_find_files(directory, ".c")
+	local _L_ = "^%s*[_%w%*%s]+%s+([_%a][_%w]*)%s*%"
+	_L_ = _L_ .. "(%s*lua_State%s*%*%s*[_%a][_%w]*%s*%)"
+	C_COMPILER_FLAGS = C_COMPILER_FLAGS .. " -I."
+
+	-- finding Lua functions in C modules
+	for _, module_path in ipairs(modules) do
+		local module_functions = {}
+		table.insert(functions, module_functions)
+		local module_file = assert(io.open(module_path, "r"))
+		for line in module_file:lines() do
+			local function_name = line:match(_L_)
+			if function_name then
+				table.insert(module_functions, function_name)
+			end
+		end
+		module_file:close()
+	end
+
+	-- including C modules from the project directory
+	for _, module_path in ipairs(modules) do
+		file:write(string.format('#include "%s"\n', module_path))
+	end
+	file:write("\n")
+
+	-- generating module names with _C suffix added
+	local module_prefix = string.format("^%s/", directory)
+	for index, module_path in ipairs(modules) do
+		local module = module_path:gsub(".c$", "")
+		module = module:gsub(module_prefix, "")
+		modules[index] = module .. "_C"
+	end
+
+	-- generating function tables from C modules
+	for index, module in ipairs(modules) do
+		local m = module:gsub("/", "_")
+		file:write(string.format("static const luaL_Reg %s[] = {\n", m))
+		for _, function_name in ipairs(functions[index]) do
+			local fn = function_name:gsub("^l_", "")
+			fn = fn:gsub(string.format("^%s_", m:gsub("_C$", "")), "")
+			file:write(string.format('\t{ "%s", %s }, \n', fn, function_name))
+		end
+		file:write('\t{ NULL, NULL }\n};\n\n')
+	end
+
+	-- generating registartion functions for C modules
+	for _, module in ipairs(modules) do
+		local m = module:gsub("/", "_")
+		file:write(string.format("static int luaopen_%s(lua_State* L) {\n", m))
+		file:write(string.format("\tluaL_newlib(L, %s);\n", m))
+		file:write("\treturn 1;\n};\n\n")
+	end
+
+	-- generating C modules registartion table
+	file:write("const LuaModule g_lua_modules[] = {\n")
+	for _, module in ipairs(modules) do
+		local m = string.format("luaopen_%s", module:gsub("/", "_"))
+		file:write(string.format('\t{ "%s", %s }, \n', module, m))
+	end
+	file:write('\t{ NULL, NULL }\n};\n')
+
+	file:close()
 end
 
 function lua_script_to_bytes_string(path)
@@ -64,7 +166,7 @@ function lua_script_to_bytes_string(path)
 	return table.concat(bytes)
 end
 
-function write_lua_header(path)
+function write_lua_scripts_header(path)
 	local file = assert(io.open(path, "w"))
 	file:write("#ifndef LUA_SCRIPTS_H\n")
 	file:write("#define LUA_SCRIPTS_H\n\n")
@@ -79,7 +181,7 @@ function write_lua_header(path)
 	file:close()
 end
 
-function write_lua_sources(directory, path)
+function write_lua_scripts(directory, path)
 	local file = assert(io.open(path, "w"))
 	file:write('#include "lua_scripts.h"\n\n')
 
@@ -91,6 +193,7 @@ function write_lua_sources(directory, path)
 		scripts[index] = { script_path, module }
 	end
 
+	-- generating Lua scripts data
 	for _, value in ipairs(scripts) do
 		local script_path, module = value[1], value[2]
 		local s = string.format("script_%s", module:gsub("/", "_"))
@@ -99,6 +202,7 @@ function write_lua_sources(directory, path)
 		file:write("};\n\n")
 	end
 
+	-- generating registartion table for Lua scripts
 	file:write("const LuaScript g_lua_scripts[] = {\n")
 	for _, value in ipairs(scripts) do
 		local module, m = value[2], value[2]:gsub("/", ".")
@@ -118,7 +222,8 @@ function compile_c(directory, path)
 
 	local sources = os_find_files(directory, ".c")
 	for _, source_path in ipairs(sources) do
-		table.insert(arguments, os_normalize_path(source_path))
+		table.insert(arguments, string.format('"%s"',
+			os_normalize_path(source_path)))
 	end
 
 	for argument in C_LINKER_FLAGS:gmatch("%S+") do
@@ -126,16 +231,21 @@ function compile_c(directory, path)
 	end
 
 	table.insert(arguments, "-o")
-	table.insert(arguments, os_normalize_path(path))
+	table.insert(arguments, string.format('"%s"',
+		os_normalize_path(path)))
 
 	local command = table.concat(arguments, " ")
 	local result = assert(io.popen(command, "r"))
 	io.write(result:read("*a"))
 end
 
+-- generating Lua modules from C sources
+write_lua_modules_header("sources/lua_modules.h")
+write_lua_modules("sources/lua_modules", "sources/lua_modules.c")
+
 -- embedding Lua scripts into C sources
-write_lua_header("sources/lua_scripts.h")
-write_lua_sources("sources/lua_scripts", "sources/lua_scripts.c")
+write_lua_scripts_header("sources/lua_scripts.h")
+write_lua_scripts("sources/lua_scripts", "sources/lua_scripts.c")
 
 -- compiling C sources
 compile_c("sources", "application")
