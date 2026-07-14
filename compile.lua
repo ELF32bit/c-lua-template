@@ -1,50 +1,15 @@
 C_COMPILER = "gcc"
 C_COMPILER_FLAGS = "-Wall -Wextra"
 C_LINKER_FLAGS = "-llua -lm"
-
 EMBED_LUA_SCRIPTS_AS_BYTECODE = true
-OS_WINDOWS = (package.config:sub(1, 1) == "\\")
-
-function os_normalize_path(path, is_native)
-	if OS_WINDOWS and is_native then
-		path = path:gsub("\r", "")
-		path = path:gsub("\\", "/")
-	elseif OS_WINDOWS and not is_native then
-		path = path:gsub("/", "\\")
-	end
-	return path
-end
-
-function os_get_cwd()
-	local command = "pwd"
-	if OS_WINDOWS then
-		command = "cd"
-	end
-	local result = assert(io.popen(command))
-	local cwd = result:read("*l")
-	result:close()
-	return cwd
-end
 
 function os_find_files(directory, extension)
 	local find_command = 'find "%s" -type f -name "*%s"'
-
-	local cwd = ""
-	if OS_WINDOWS then
-		find_command = 'dir /b /s "%s\\*%s"'
-		cwd = string.format("^%s\\", os_get_cwd())
-	end
-
-	find_command = string.format(find_command,
-		os_normalize_path(directory, false), extension)
+	find_command = string.format(find_command, directory, extension)
 	local found_files = assert(io.popen(find_command, "r"))
 
 	local sorted_files = {}
 	for path in found_files:lines() do
-		if OS_WINDOWS then
-			path = path:gsub(cwd, "")
-		end
-		path = os_normalize_path(path, true)
 		table.insert(sorted_files, path)
 	end
 
@@ -222,8 +187,7 @@ function compile_c(directory, path)
 
 	local sources = os_find_files(directory, ".c")
 	for _, source_path in ipairs(sources) do
-		table.insert(arguments, string.format('"%s"',
-			os_normalize_path(source_path)))
+		table.insert(arguments, string.format('"%s"', source_path))
 	end
 
 	for argument in C_LINKER_FLAGS:gmatch("%S+") do
@@ -231,8 +195,7 @@ function compile_c(directory, path)
 	end
 
 	table.insert(arguments, "-o")
-	table.insert(arguments, string.format('"%s"',
-		os_normalize_path(path)))
+	table.insert(arguments, string.format('"%s"', path))
 
 	local command = table.concat(arguments, " ")
 	local result = assert(io.popen(command, "r"))

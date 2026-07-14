@@ -1,7 +1,7 @@
 #include <lua.h>
 #include <lauxlib.h>
 
-/* prefix module functions with file name or l_ */
+/* prefix Lua functions with module name or l_ */
 static int example_sum(lua_State *L) {
 	luaL_checktype(L, 1, LUA_TTABLE);
 
