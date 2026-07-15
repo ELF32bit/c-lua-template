@@ -54,7 +54,7 @@ function write_lua_modules(directory, path)
 	file:write('#include <lua.h>\n')
 	file:write('#include <lauxlib.h>\n\n')
 
-	local modules = os_find_files(directory, ".c")
+	local modules = os_find_files(directory, ".h")
 
 	-- finding Lua functions in C modules
 	local functions = {}
@@ -81,7 +81,7 @@ function write_lua_modules(directory, path)
 	-- generating module names with _C suffix added
 	local module_prefix = string.format("^%s/", directory)
 	for index, module_path in ipairs(modules) do
-		local module = module_path:gsub(".c$", "")
+		local module = module_path:gsub(".h$", "")
 		module = module:gsub(module_prefix, "")
 		modules[index] = module .. "_C"
 	end
@@ -103,7 +103,7 @@ function write_lua_modules(directory, path)
 		local m = module:gsub("/", "_")
 		file:write(string.format("static int luaopen_%s(lua_State* L) {\n", m))
 		file:write(string.format("\tluaL_newlib(L, %s);\n", m))
-		file:write("\treturn 1;\n};\n\n")
+		file:write("\treturn 1;\n}\n\n")
 	end
 
 	-- generating C modules registration table
