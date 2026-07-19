@@ -8,5 +8,5 @@ Run the command inside any **non-Windows** terminal.<br>
 ```Bash
 lua compile.lua && ./application
 ```
-Add **`-Ithirdparty`** flag to **`C_COMPILER_FLAGS`** in **`compile.lua`**.<br>
+Add **`-Ithirdparty`** flag to **`C_COMPILER_FLAGS`** in **`compile.lua`**<br>
 Create **`thirdparty`** directory to include external libraries.<br>

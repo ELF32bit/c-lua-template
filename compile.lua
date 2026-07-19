@@ -1,6 +1,14 @@
 C_COMPILER = "gcc"
-C_COMPILER_FLAGS = "-Wall -Wextra"
-C_LINKER_FLAGS = "-llua -lm"
+
+C_COMPILER_FLAGS = {
+	"-std=c99",
+	"-Wall -Wextra",
+}
+
+C_LINKER_FLAGS = {
+	"-llua -lm",
+}
+
 EMBED_LUA_SCRIPTS_AS_BYTECODE = true
 
 function os_find_files(directory, extension)
@@ -72,7 +80,7 @@ function write_lua_modules(directory, path)
 	end
 
 	-- including C modules from the project directory
-	C_COMPILER_FLAGS = C_COMPILER_FLAGS .. " -I."
+	table.insert(C_COMPILER_FLAGS, "-I.")
 	for _, module_path in ipairs(modules) do
 		file:write(string.format('#include "%s"\n', module_path))
 	end
@@ -194,13 +202,13 @@ function compile_c(directory, path)
 	local sources = os_find_files(directory, ".c")
 
 	local arguments = { C_COMPILER }
-	for argument in C_COMPILER_FLAGS:gmatch("%S+") do
+	for _, argument in ipairs(C_COMPILER_FLAGS) do
 		table.insert(arguments, argument)
 	end
 	for _, source_path in ipairs(sources) do
 		table.insert(arguments, string.format('"%s"', source_path))
 	end
-	for argument in C_LINKER_FLAGS:gmatch("%S+") do
+	for _, argument in ipairs(C_LINKER_FLAGS) do
 		table.insert(arguments, argument)
 	end
 	table.insert(arguments, "-o")

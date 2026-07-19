@@ -1,4 +1,4 @@
-print("Hello World!")
+print(arg[0], "Hello World!")
 
 local array = { 1, 2, 3, 4, 5, 6, 7, 8 }
 print("Array:", table.concat(array, ","))
