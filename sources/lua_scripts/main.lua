@@ -6,3 +6,6 @@ print("Array:", table.concat(array, ","))
 -- load Lua modules with _C suffix
 local example_module = require("example_C")
 print("Sum example:", example_module.sum(array))
+
+-- create new objects with metatables
+print(example_module.new_object())

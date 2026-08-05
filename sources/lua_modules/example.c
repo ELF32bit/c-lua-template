@@ -15,3 +15,9 @@ int l_example_sum(lua_State *L) {
 	lua_pushinteger(L, sum);
 	return 1;
 }
+
+/* add _meta suffix to metamethods of the module */
+int l_example___tostring_meta(lua_State *L) {
+	lua_pushstring(L, "New object:\tOK");
+	return 1;
+}

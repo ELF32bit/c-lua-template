@@ -3,7 +3,7 @@ C_COMPILER = "gcc"
 C_COMPILER_FLAGS = {
 	"-std=c99",
 	"-Wall -Wextra",
-	--"-Ithirdparty",
+	"-Ithirdparty",
 }
 
 C_LINKER_FLAGS = {
@@ -29,8 +29,8 @@ function os_find_files(directory, extension)
 end
 
 function parse_lua_module_c_function_name(line)
-	local LFN1 = "^%s*static%s+int%s+([%a_][%w_]*)%s*%((.*)%)"
-	local LFN2 = "^%s*int%s+([%a_][%w_]*)%s*%((.*)%)"
+	local LFN1 = "^%s*int%s+([%a_][%w_]*)%s*%((.*)%)"
+	local LFN2 = "^%s*static%s+inline%s+int%s+([%a_][%w_]*)%s*%((.*)%)"
 	local LFP1 = "^%s*const%s+lua_State%s*%*%s*([%a_][%w_]*)%s*$"
 	local LFP2 = "^%s*lua_State%s*%*%s*([%a_][%w_]*)%s*$"
 	local name, parameters = line:match(LFN1)
@@ -58,23 +58,10 @@ end
 function write_lua_modules(directory, path)
 	local file = assert(io.open(path, "w"))
 	file:write('#include "lua_modules.h"\n\n')
-	file:write('#include <lua.h>\n')
-	file:write('#include <lauxlib.h>\n\n')
+	file:write("#include <lua.h>\n")
+	file:write("#include <lauxlib.h>\n\n")
 
 	local modules = os_find_files(directory, ".h")
-
-	-- finding Lua functions in C modules
-	local functions = {}
-	for _, module_path in ipairs(modules) do
-		local module_functions = {}
-		table.insert(functions, module_functions)
-		local module_file = assert(io.open(module_path, "r"))
-		for line in module_file:lines() do
-			local name = parse_lua_module_c_function_name(line)
-			if name then table.insert(module_functions, name) end
-		end
-		module_file:close()
-	end
 
 	-- including C modules from the project directory
 	table.insert(C_COMPILER_FLAGS, "-I.")
@@ -88,36 +75,70 @@ function write_lua_modules(directory, path)
 	for index, module_path in ipairs(modules) do
 		local module = module_path:gsub(".h$", "")
 		module = module:gsub(module_prefix, "")
-		modules[index] = module .. "_C"
+		modules[index] = {
+			path = module_path,
+			name = (module:gsub("/", "_")),
+			c_name = (module:gsub("/", "_")) .. "_C",
+			lua_name = (module:gsub("/", ".")) .. "_C",
+		}
 	end
 
-	-- generating function tables from C modules
-	for index, module in ipairs(modules) do
-		local m = module:gsub("/", "_")
-		file:write(("static const luaL_Reg %s[] = {\n"):format(m))
-		for _, name in ipairs(functions[index]) do
-			local n = name:gsub("^l_", "")
-			n = n:gsub(("^%s_"):format(m:gsub("_C$", "")), "")
-			file:write(('\t{ "%s", %s }, \n'):format(n, name))
+	-- finding Lua functions in C modules
+	local functions = {}
+	for _, module in ipairs(modules) do
+		local module_file = assert(io.open(module.path, "r"))
+		local module_functions = { static = {}, meta = {} }
+		table.insert(functions, module_functions)
+		for line in module_file:lines() do
+			local func = parse_lua_module_c_function_name(line)
+			if func then
+				local lua_name = func:gsub("^l_", "")
+				lua_name = lua_name:gsub(("^%s_"):format(module.name), "")
+				local function_type = module_functions.static
+				if func:match("_meta$") then
+					lua_name = lua_name:gsub("_meta$", "")
+					function_type = module_functions.meta
+				end
+				table.insert(function_type, {
+					lua_name = lua_name,
+					c_name = func,
+				})
+			end
 		end
-		file:write('\t{ NULL, NULL }\n};\n\n')
+		module_file:close()
+	end
+
+	-- generating static functions from C modules
+	for index, module in ipairs(modules) do
+		file:write(("static const luaL_Reg %s[] = {\n"):format(module.c_name))
+		for _, func in ipairs(functions[index].static) do
+			file:write(('\t{ "%s", %s }, \n'):format(func.lua_name, func.c_name))
+		end
+		file:write("\t{ NULL, NULL }\n};\n\n")
 	end
 
 	-- generating registration functions for C modules
-	for _, module in ipairs(modules) do
-		local m = module:gsub("/", "_")
-		file:write(("static int luaopen_%s(lua_State* L) {\n"):format(m))
-		file:write(("\tluaL_newlib(L, %s);\n"):format(m))
+	for index, module in ipairs(modules) do
+		file:write(("static int luaopen_%s(lua_State* L) {\n"):format(module.c_name))
+		if #functions[index].meta > 0 then
+			file:write(('\tluaL_newmetatable(L, "%s.instance");\n'):format(module.c_name))
+			for _, func in ipairs(functions[index].meta) do
+				file:write(("\tlua_pushcfunction(L, %s);\n"):format(func.c_name));
+				file:write(('\tlua_setfield(L, -2, "%s");\n'):format(func.lua_name));
+			end
+			file:write(("\tlua_pop(L, 1);\n"))
+		end
+		file:write(("\tluaL_newlib(L, %s);\n"):format(module.c_name))
 		file:write("\treturn 1;\n}\n\n")
 	end
 
 	-- generating C modules registration table
 	file:write("const LuaModule g_lua_modules[] = {\n")
 	for _, module in ipairs(modules) do
-		local m = ("luaopen_%s"):format(module:gsub("/", "_"))
-		file:write(('\t{ "%s", %s }, \n'):format(module, m))
+		local m = ("luaopen_%s"):format(module.c_name)
+		file:write(('\t{ "%s", %s }, \n'):format(module.lua_name, m))
 	end
-	file:write('\t{ NULL, NULL }\n};\n')
+	file:write("\t{ NULL, NULL }\n};\n")
 
 	file:close()
 end
@@ -190,7 +211,7 @@ function write_lua_scripts(directory, path)
 		local s = ("script_%s"):format(module:gsub("/", "_"))
 		file:write(('\t{ "%s", %s, sizeof(%s) }, \n'):format(m, s, s))
 	end
-	file:write('\t{ NULL, NULL, 0 }\n};\n')
+	file:write("\t{ NULL, NULL, 0 }\n};\n")
 
 	file:close()
 end
