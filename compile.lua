@@ -3,7 +3,8 @@ C_COMPILER = "gcc"
 C_COMPILER_FLAGS = {
 	"-std=c99",
 	"-Wall -Wextra",
-	"-Ithirdparty",
+	"-Wno-unused-variable",
+	--"-Ithirdparty",
 }
 
 C_LINKER_FLAGS = {

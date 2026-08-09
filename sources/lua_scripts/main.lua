@@ -8,4 +8,5 @@ local example_module = require("example_C")
 print("Sum example:", example_module.sum(array))
 
 -- create new objects with metatables
-print(example_module.new_object())
+local object = example_module.new_object()
+print(object:to_string())
