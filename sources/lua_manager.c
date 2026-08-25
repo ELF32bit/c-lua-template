@@ -14,7 +14,8 @@ void luaM_register_modules(lua_State* L) {
 }
 
 static int luaM_script_loader(lua_State* L) {
-	const LuaScript* script = lua_touserdata(L, lua_upvalueindex(1));
+	const LuaScript* script = lua_touserdata(L,
+		lua_upvalueindex(1));
 	lua_settop(L, 0);
 	if (luaL_loadbuffer(L, script->data,
 		script->data_size, script->name) != LUA_OK) {
