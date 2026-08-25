@@ -1,6 +1,13 @@
+*.o
+*.a
+*.lib
+
 sources/lua_modules.c
 sources/lua_modules.h
 sources/lua_scripts.c
 sources/lua_scripts.h
-application.exe
+
 application
+application.exe
+
+.vscode/

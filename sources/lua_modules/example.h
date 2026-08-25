@@ -13,7 +13,7 @@ int l_example_sum(lua_State* L);
 /* create object instances with module metatable */
 static inline int l_example_new_object(lua_State* L) {
 	void* object = lua_newuserdata(L, sizeof(int));
-	//object_init(&object);
+	//object_init(object);
 	luaL_getmetatable(L, METATABLE);
 	lua_setmetatable(L, -2);
 	return 1;
@@ -22,7 +22,7 @@ static inline int l_example_new_object(lua_State* L) {
 /* add _meta suffix to metamethods of the module */
 static inline int l_example___gcc_meta(lua_State* L) {
 	void* object = luaL_checkudata(L, 1, METATABLE);
-	//object_destroy(&object);
+	//object_destroy(object);
 	return 0;
 }
 
