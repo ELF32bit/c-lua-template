@@ -1,14 +1,24 @@
-TARGET = application
-SOURCES_DIRECTORY = sources
-THIRDPARTY_DIRECTORY = thirdparty
-EXE = $(if $(COMSPEC),.exe,)
+# =========================================================================== #
+# Configuration                                                               #
+# =========================================================================== #
 
 CC = gcc
-CFLAGS = -std=c99 -I. \
-	-I$(SOURCES_DIRECTORY) \
-	-I$(THIRDPARTY_DIRECTORY) \
-	-Wall -Wextra -Wno-unused-variable
+TARGET = application
+EXE = $(if $(COMSPEC),.exe,)
+
+CFLAGS = -std=c99
+CFLAGS += -Wall -Wextra -Wno-unused-variable
 CFLAGS += -O2 -DNDEBUG
+
+# =========================================================================== #
+# Dependencies                                                                #
+# =========================================================================== #
+
+SOURCES_DIRECTORY = sources
+CFLAGS += -I. -I$(SOURCES_DIRECTORY)
+
+THIRDPARTY_DIRECTORY = thirdparty
+CFLAGS += -I$(THIRDPARTY_DIRECTORY)
 
 LDFLAGS =
 LDLIBS = -lm
@@ -20,6 +30,10 @@ ifeq ($(LUA_LINK_STATIC), 1)
 else
 	LDLIBS += -llua
 endif
+
+# =========================================================================== #
+# Lua Embedding                                                               #
+# =========================================================================== #
 
 LUA_MODULES_DIRECTORY = $(SOURCES_DIRECTORY)/lua_modules
 LUA_MODULES_HEADER = $(SOURCES_DIRECTORY)/lua_modules.h
@@ -41,6 +55,19 @@ LUA_SCRIPTS = $(wildcard \
 	$(LUA_SCRIPTS_DIRECTORY)/*/*/*.lua \
 	$(LUA_SCRIPTS_DIRECTORY)/*/*/*/*.lua)
 
+LUA_REQUIRED = compile.lua \
+	$(LUA_MODULES) $(LUA_SCRIPTS)
+
+LUA_GENERATED = \
+	$(LUA_MODULES_HEADER) \
+	$(LUA_MODULES_CODE) \
+	$(LUA_SCRIPTS_HEADER) \
+	$(LUA_SCRIPTS_CODE)
+
+# =========================================================================== #
+# Sources                                                                     #
+# =========================================================================== #
+
 C_SOURCES_ALL = $(wildcard \
 	$(SOURCES_DIRECTORY)/*.c \
 	$(SOURCES_DIRECTORY)/*/*.c \
@@ -53,18 +80,24 @@ C_SOURCES_ALL += $(wildcard \
 	$(THIRDPARTY_DIRECTORY)/*/*/*.c \
 	$(THIRDPARTY_DIRECTORY)/*/*/*/*.c)
 
-C_SOURCES = $(filter-out \
+C_SOURCES_ALL_WITHOUT_LUA = $(filter-out \
+	$(THIRDPARTY_DIRECTORY)/lua/% \
 	$(LUA_MODULES_CODE) \
 	$(LUA_SCRIPTS_CODE), \
 	$(C_SOURCES_ALL))
 
+C_SOURCES = $(C_SOURCES_ALL_WITHOUT_LUA)
 C_OBJECTS = $(C_SOURCES:.c=.o)
 
-.PHONY: all lua_compile clean
+# =========================================================================== #
+# Compiling                                                                   #
+# =========================================================================== #
 
-all: lua_compile $(TARGET)$(EXE)
+.PHONY: all clean
 
-lua_compile:
+all: $(TARGET)$(EXE)
+
+$(LUA_GENERATED): $(LUA_REQUIRED)
 	@lua compile.lua \
 		'$(LUA_MODULES_DIRECTORY)' \
 		'$(LUA_MODULES_HEADER)' \
@@ -74,6 +107,10 @@ lua_compile:
 		'$(LUA_SCRIPTS_HEADER)' \
 		'$(LUA_SCRIPTS_CODE)' \
 		'$(LUA_SCRIPTS)'
+
+$(C_OBJECTS): | \
+	$(LUA_MODULES_HEADER) \
+	$(LUA_SCRIPTS_HEADER)
 
 $(TARGET)$(EXE): $(C_OBJECTS) $(LUA_MODULES_CODE) $(LUA_SCRIPTS_CODE)
 	@$(CC) $(CFLAGS) $(LDFLAGS) $(C_OBJECTS) \
@@ -85,7 +122,4 @@ $(TARGET)$(EXE): $(C_OBJECTS) $(LUA_MODULES_CODE) $(LUA_SCRIPTS_CODE)
 
 clean:
 	@rm -f $(C_OBJECTS) $(TARGET)$(EXE) \
-		$(LUA_MODULES_HEADER) \
-		$(LUA_MODULES_CODE) \
-		$(LUA_SCRIPTS_HEADER) \
-		$(LUA_SCRIPTS_CODE)
+		$(LUA_GENERATED)
